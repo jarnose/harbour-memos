@@ -10,8 +10,29 @@ Page {
     property int listLineCount: 2
     property int listCoverMode: 0
 
-    // Tähän tallennetaan hakusana
+    // Tähän tallennetaan kaikki haetut muistiinpanot
+    property var allMemos: []
+    // Tähän tallennetaan hakusana turvallisesti
     property string searchText: ""
+
+    // Funktio, joka päivittää listanäkymän hakukentän perusteella
+    function updateList() {
+        memoModel.clear();
+        var filter = page.searchText.toLowerCase();
+
+        for (var i = 0; i < allMemos.length; i++) {
+            var m = allMemos[i];
+
+            // Varmistetaan, että teksti on olemassa ja muutetaan se merkkijonoksi
+            var contentString = m.content ? m.content.toString().toLowerCase() : "";
+
+            if (filter !== "" && contentString.indexOf(filter) === -1) {
+                continue;
+            }
+
+            memoModel.append(m);
+        }
+    }
 
     Python {
         id: py
@@ -39,6 +60,7 @@ Page {
                 page.errorMessage = "";
                 memoModel.clear(); // Tyhjennetään vain haun alussa
                 var memos = data[1];
+                var processedMemos = [];
 
                 if (memos.length > 0) {
                     var latestContent = memos[0].content || memos[0].name;
@@ -87,12 +109,16 @@ Page {
                         }
                     }
 
-                    memoModel.append({
+                    processedMemos.push({
                         "memoId": mId.toString(),
                         "content": memos[i].content || memos[i].name,
                         "timestamp": timeStr
                     });
                 }
+
+                // Tallennetaan muistiin ja päivitetään lista
+                page.allMemos = processedMemos;
+                page.updateList();
 
             } else if (data[0] === 'memo_queued') {
                 page.errorMessage = qsTr("No network, added to queue.");
@@ -208,7 +234,6 @@ Page {
                 text: qsTr("Refresh")
                 onClicked: {
                     page.errorMessage = qsTr("Updating...")
-                    searchField.text = ""
                     py.call('memos.api.sync_queue', [], function() {
                         py.call('memos.api.fetch_memos', [])
                     })
@@ -288,7 +313,7 @@ Page {
                     Component.onCompleted: fetchHtml()
 
                     function fetchHtml() {
-                        if (py && isMatch) { // Muotoillaan teksti vain jos se on näkyvissä
+                        if (py && isMatch) {
                             py.call('memos.api.render_markdown', [rawContent], function(html) {
                                 memoText.text = html
                             })
