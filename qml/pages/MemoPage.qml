@@ -75,9 +75,15 @@ Page {
                 Component.onCompleted: fetchHtml()
 
                 function fetchHtml() {
-                    if (appWindow.py) {
-                        appWindow.py.call('memos.api.render_markdown', [rawContent], function(html) {
-                            memoLabel.text = html
+                    if (py) {
+                        // Lasketaan tarkka leveys puhelimen ruudun koosta
+                        // miinus Sailfishin vakiomarginaalit molemmista reunoista
+                        var w = Screen.width - (Theme.horizontalPageMargin * 2)
+
+                        // Jos FirstPage.qml, py.call vaatii tietysti sen "&& isMatch" tuohon if-lauseeseen,
+                        // mutta MemoPage.qml:ssä mennään tällä:
+                        py.call('memos.api.render_markdown', [rawContent, w], function(html) {
+                            text = html
                         })
                     }
                 }

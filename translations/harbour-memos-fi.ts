@@ -4,52 +4,62 @@
 <context>
     <name>FirstPage</name>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="83"/>
+        <location filename="../qml/pages/FirstPage.qml" line="88"/>
         <source>No memos</source>
         <translation>Ei muistiinpanoja</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="103"/>
+        <location filename="../qml/pages/FirstPage.qml" line="107"/>
         <source>(Edited: %1)</source>
         <translation>(Muokattu: %1)</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="120"/>
+        <location filename="../qml/pages/FirstPage.qml" line="124"/>
         <source>No network, added to queue.</source>
         <translation>Ei verkkoa, lisätty lähetysjonoon.</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="172"/>
+        <location filename="../qml/pages/FirstPage.qml" line="176"/>
         <source>Search...</source>
         <translation>Etsi...</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="196"/>
+        <location filename="../qml/pages/FirstPage.qml" line="201"/>
+        <source>Clear cache</source>
+        <translation>Tyhjennä välimuisti</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/FirstPage.qml" line="203"/>
+        <source>Clearing cache...</source>
+        <translation>Tyhjennetään välimuistia...</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/FirstPage.qml" line="212"/>
         <source>Settings</source>
         <translation>Asetukset</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="218"/>
+        <location filename="../qml/pages/FirstPage.qml" line="234"/>
         <source>New memo</source>
         <translation>Uusi muistiinpano</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="229"/>
+        <location filename="../qml/pages/FirstPage.qml" line="245"/>
         <source>Refresh</source>
         <translation>Päivitä</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="231"/>
+        <location filename="../qml/pages/FirstPage.qml" line="247"/>
         <source>Updating...</source>
         <translation>Päivitetään...</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="247"/>
+        <location filename="../qml/pages/FirstPage.qml" line="270"/>
         <source>Edit</source>
         <translation>Muokkaa</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="259"/>
+        <location filename="../qml/pages/FirstPage.qml" line="282"/>
         <source>Delete</source>
         <translation>Poista</translation>
     </message>
@@ -75,19 +85,34 @@
 <context>
     <name>NewMemoDialog</name>
     <message>
-        <location filename="../qml/pages/NewMemoDialog.qml" line="22"/>
+        <location filename="../qml/pages/NewMemoDialog.qml" line="32"/>
+        <source>Add image</source>
+        <translation>Lisää kuva</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/NewMemoDialog.qml" line="72"/>
         <source>Save</source>
         <translation>Tallenna</translation>
     </message>
     <message>
-        <location filename="../qml/pages/NewMemoDialog.qml" line="28"/>
-        <source>Write a memo...</source>
-        <translation>Kirjoita muistiinpano...</translation>
+        <location filename="../qml/pages/NewMemoDialog.qml" line="72"/>
+        <source>Uploading...</source>
+        <translation>Lähetetään...</translation>
     </message>
     <message>
-        <location filename="../qml/pages/NewMemoDialog.qml" line="29"/>
-        <source>Memo</source>
-        <translation>Muistiinpano</translation>
+        <location filename="../qml/pages/NewMemoDialog.qml" line="80"/>
+        <source>Uploading image, please wait...</source>
+        <translation>Lähetetään kuvaa, odota hetki...</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/NewMemoDialog.qml" line="80"/>
+        <source>Write your memo here...</source>
+        <translation>Kirjoita muistio tähän</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/NewMemoDialog.qml" line="81"/>
+        <source>Memo content</source>
+        <translation>Muistion sisältö</translation>
     </message>
 </context>
 <context>

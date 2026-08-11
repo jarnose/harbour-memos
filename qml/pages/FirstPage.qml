@@ -198,6 +198,17 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("Clear cache")
+                onClicked: {
+                    page.errorMessage = qsTr("Clearing cache...")
+                    py.call('memos.api.clear_cache', [], function() {
+                        // Kun välimuisti on tyhjennetty, ladataan muistiinpanot
+                        // ja kuvat puhtaalta pöydältä uudestaan palvelimelta:
+                        py.call('memos.api.fetch_memos', [])
+                    })
+                }
+            }
+            MenuItem {
                 text: qsTr("Settings")
                 onClicked: {
                     py.call('memos.api.get_settings', [], function(settings) {
@@ -310,11 +321,20 @@ Page {
 
                     property string rawContent: content
                     onRawContentChanged: fetchHtml()
+                    onWidthChanged: {
+                        if (width > 0 && isMatch)
+                            fetchHtml()
+                    }
                     Component.onCompleted: fetchHtml()
 
                     function fetchHtml() {
-                        if (py && isMatch) {
-                            py.call('memos.api.render_markdown', [rawContent], function(html) {
+                        if (py && isMatch && memoText.width > 0) {
+                            // Kuville annetaan aina todellinen käytettävissä oleva leveys.
+                            // Python-renderöijä lisää img-tagille sekä width- että height-arvon,
+                            // jolloin Qt StyledText ei käytä kuvan alkuperäistä kokoa.
+                            var w = Math.floor(memoText.width)
+
+                            py.call('memos.api.render_markdown', [rawContent, w], function(html) {
                                 memoText.text = html
                             })
                         }

@@ -38,11 +38,20 @@ CoverBackground {
         // Python Markdown -päivitys
         property string rawContent: appWindow.latestMemoText
         onRawContentChanged: fetchHtml()
+        onWidthChanged: {
+            if (width > 0)
+                fetchHtml()
+        }
         Component.onCompleted: fetchHtml()
 
         function fetchHtml() {
-            if (appWindow.py) {
-                appWindow.py.call('memos.api.render_markdown', [rawContent], function(html) {
+            if (appWindow.py && memoText.width > 0) {
+                // Anna renderöijälle Coverin todellinen käytettävissä oleva leveys.
+                // Python laskee kuville sekä width- että height-arvon, joten
+                // Qt ei käytä kuvan alkuperäistä kokoa ja leikkaa sitä oikealta.
+                var w = Math.floor(memoText.width)
+
+                appWindow.py.call('memos.api.render_markdown', [rawContent, w], function(html) {
                     memoText.text = html
                 })
             }
