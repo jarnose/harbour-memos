@@ -26,7 +26,10 @@ class MemosAPI:
         self.image_cache_dir = os.path.join(config_dir, 'image_cache')
         if not os.path.exists(self.image_cache_dir):
             os.makedirs(self.image_cache_dir)
-        self.md = mistune.create_markdown(escape=True)
+        self.md = mistune.create_markdown(
+            escape=True,
+            plugins=['table', 'strikethrough']
+        )
         self.base_url = ''
         self.token = ''
         self.auto_upload = False
