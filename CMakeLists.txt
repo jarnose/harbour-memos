@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.19)
 project(harbour-memos CXX)
 
-find_package (Qt5 COMPONENTS Core Network Qml Gui Quick REQUIRED)
+# LISÄTTY: LinguistTools, jotta käännöstyökalut löytyvät
+find_package(Qt5 COMPONENTS Core Network Qml Gui Quick LinguistTools REQUIRED)
 
 include(FindPkgConfig)
 pkg_search_module(SAILFISH sailfishapp REQUIRED)
@@ -22,6 +23,15 @@ target_link_libraries(harbour-memos
     ${SAILFISH_LDFLAGS}
 )
 
+# --- UUSI KÄÄNNÖSLOGIIKKA ---
+# Etsitään kaikki .ts -tiedostot
+file(GLOB TS_FILES "translations/*.ts")
+# Muutetaan .ts -> .qm (rakennuskansioon)
+qt5_add_translation(QM_FILES ${TS_FILES})
+# Varmistetaan, että ne käännetään aina kun projektia rakennetaan
+add_custom_target(translations_target ALL DEPENDS ${QM_FILES})
+# ----------------------------
+
 install(TARGETS harbour-memos
     RUNTIME DESTINATION bin
 )
@@ -31,10 +41,12 @@ install(DIRECTORY qml
 install(DIRECTORY python
     DESTINATION share/harbour-memos
 )
-install(DIRECTORY translations
-    DESTINATION share/harbour-memos
-    FILES_MATCHING PATTERN "*.qm"
+
+# LISÄTTY: Asennetaan käännetyt .qm -tiedostot puhelimeen
+install(FILES ${QM_FILES}
+    DESTINATION share/harbour-memos/translations
 )
+
 install(FILES harbour-memos.desktop
     DESTINATION share/applications
 )
@@ -52,7 +64,6 @@ install(FILES icons/172x172/harbour-memos.png
 )
 
 # Get the other files reachable from the project tree in Qt Creator
-FILE(GLOB TsFiles "translations/*.ts")
 add_custom_target(distfiles
     SOURCES
         harbour-memos.desktop
@@ -68,21 +79,10 @@ add_custom_target(distfiles
         rpm/harbour-memos.changes.run.in
         rpm/harbour-memos.spec
         rpm/harbour-memos.yaml
-        ${TsFiles})
+        ${TS_FILES})
 
-# Tell Qt Creator where the application executable(s) would be located on the
-# device.
-#
-# It is not necessary to list other deployables than executables (runtime
-# targets) here. The deployment process of Sailfish OS projects is opaque to
-# Qt Creator and the information contained in QtCreatorDeployment.txt is only
-# used to locate the executable associated with the active run configuration
-# on the device in order to run it.
-#
-# Search the Qt Creator Manual to learn about the QtCreatorDeployment.txt file
-# format.
+# Tell Qt Creator where the application executable(s) would be located on the device.
 file(WRITE "${CMAKE_BINARY_DIR}/QtCreatorDeployment.txt"
     "${CMAKE_INSTALL_PREFIX}
 ${CMAKE_BINARY_DIR}/harbour-memos:bin
 ")
-

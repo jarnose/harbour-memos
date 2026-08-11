@@ -5,7 +5,6 @@ Dialog {
     id: dialog
     allowedOrientations: Orientation.All
 
-    // Lisätään mahdollisuus ottaa tekstiä sisään (muokkausta varten)
     property string initialText: ""
     property string memoContent: textArea.text
 
@@ -20,14 +19,14 @@ Dialog {
         spacing: Theme.paddingLarge
 
         DialogHeader {
-            acceptText: "Tallenna"
+            acceptText: qsTr("Save")
         }
 
         TextArea {
             id: textArea
             width: parent.width
-            placeholderText: "Kirjoita muistiinpano..."
-            label: "Memo"
+            placeholderText: qsTr("Write a memo...")
+            label: qsTr("Memo")
             focus: true
         }
     }

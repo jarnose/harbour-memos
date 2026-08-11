@@ -9,7 +9,7 @@ Dialog {
     property string currentToken: ""
     property bool currentAutoUpload: false
     property int currentLineCount: 2
-    property int currentCoverMode: 0 // UUSI ASETUS
+    property int currentCoverMode: 0
 
     property string savedUrl: urlField.text
     property string savedToken: tokenField.text
@@ -22,7 +22,6 @@ Dialog {
         return 0;
     }
 
-    // Luetaan kansilehden valinta suoraan
     property int savedCoverMode: coverModeCombo.currentIndex
 
     Component.onCompleted: {
@@ -35,7 +34,6 @@ Dialog {
         else if (currentLineCount === 0) lineCountCombo.currentIndex = 3;
         else lineCountCombo.currentIndex = 1;
 
-        // Asetetaan kansilehden valikko aiemmin tallennetun mukaiseksi
         coverModeCombo.currentIndex = currentCoverMode;
     }
 
@@ -49,13 +47,13 @@ Dialog {
             spacing: Theme.paddingLarge
 
             DialogHeader {
-                acceptText: "Tallenna"
+                acceptText: qsTr("Save")
             }
 
             TextField {
                 id: urlField
                 width: parent.width
-                label: "Palvelimen osoite"
+                label: qsTr("Server URL")
                 placeholderText: "https://memos.domain.fi"
                 inputMethodHints: Qt.ImhUrlCharactersOnly
             }
@@ -63,37 +61,36 @@ Dialog {
             TextField {
                 id: tokenField
                 width: parent.width
-                label: "API Access Token"
-                placeholderText: "Syötä token"
+                label: qsTr("API Access Token")
+                placeholderText: qsTr("Enter token")
                 echoMode: TextInput.Password
             }
 
             TextSwitch {
                 id: autoUploadSwitch
-                text: "Automaattinen lähetys"
-                description: "Synkronoi merkinnät taustalla"
+                text: qsTr("Auto-upload")
+                description: qsTr("Sync memos in background")
             }
 
             ComboBox {
                 id: lineCountCombo
                 width: parent.width
-                label: "Listassa näytettävät rivit"
+                label: qsTr("Lines to show in list")
                 menu: ContextMenu {
-                    MenuItem { text: "1 rivi" }
-                    MenuItem { text: "2 riviä" }
-                    MenuItem { text: "3 riviä" }
-                    MenuItem { text: "Kaikki rivit" }
+                    MenuItem { text: qsTr("1 line") }
+                    MenuItem { text: qsTr("2 lines") }
+                    MenuItem { text: qsTr("3 lines") }
+                    MenuItem { text: qsTr("All lines") }
                 }
             }
 
-            // UUSI VALIKKO KANSILEHDELLE
             ComboBox {
                 id: coverModeCombo
                 width: parent.width
-                label: "Kansilehdellä näytetään"
+                label: qsTr("Show on cover")
                 menu: ContextMenu {
-                    MenuItem { text: "Uusin luotu" }
-                    MenuItem { text: "Viimeksi muokattu" }
+                    MenuItem { text: qsTr("Latest created") }
+                    MenuItem { text: qsTr("Recently edited") }
                 }
             }
         }

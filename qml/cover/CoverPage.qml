@@ -8,7 +8,7 @@ CoverBackground {
         var html = rawText;
 
         html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '[Kuva: $1]');
+        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '[Image: $1]');
         html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
 
         html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');

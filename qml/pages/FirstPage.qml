@@ -8,14 +8,14 @@ Page {
 
     property string errorMessage: ""
     property int listLineCount: 2
-    property int listCoverMode: 0 // UUSI: 0 = Luotu, 1 = Muokattu
+    property int listCoverMode: 0
 
     function formatText(rawText) {
         if (!rawText) return "";
         var html = rawText;
 
         html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2">[Kuva: $1]</a>');
+        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2">[Image: $1]</a>');
         html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
         html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
         html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
@@ -58,17 +58,15 @@ Page {
                 memoModel.clear();
                 var memos = data[1];
 
-                // --- KANSILEHDEN LOGIIKKA ---
                 if (memos.length > 0) {
                     var latestContent = memos[0].content || memos[0].name;
 
                     if (page.listCoverMode === 1) {
-                        // Etsitään muokkausajaltaan uusin
                         var maxMs = 0;
                         var maxIdx = 0;
                         for (var m = 0; m < memos.length; m++) {
                             if (memos[m].name === "queued") {
-                                maxMs = Date.now(); // Jonossa oleva katsotaan aina tuoreimmaksi
+                                maxMs = Date.now();
                                 maxIdx = m;
                             } else {
                                 var parseTime = memos[m].updateTime || memos[m].updatedTs || memos[m].createTime || memos[m].createdTs || 0;
@@ -83,30 +81,26 @@ Page {
                     }
                     appWindow.latestMemoText = latestContent;
                 } else {
-                    appWindow.latestMemoText = "Ei merkintöjä";
+                    appWindow.latestMemoText = qsTr("No memos");
                 }
 
-                // --- LISTAN JA AIKALEIMOJEN LOGIIKKA ---
                 for (var i = 0; i < memos.length; i++) {
                     var mId = memos[i].name || memos[i].id || "unknown";
                     var timeStr = "";
 
                     if (mId !== "queued") {
-                        // Parsitaan luontiaika
                         var cRaw = memos[i].createTime || memos[i].createdTs || "";
                         var cMs = typeof cRaw === "number" ? cRaw * 1000 : (cRaw ? new Date(cRaw).getTime() : 0);
                         var cStr = cMs > 0 ? Qt.formatDateTime(new Date(cMs), "d.M.yyyy hh:mm") : "";
 
-                        // Parsitaan muokkausaika
                         var uRaw = memos[i].updateTime || memos[i].updatedTs || "";
                         var uMs = typeof uRaw === "number" ? uRaw * 1000 : (uRaw ? new Date(uRaw).getTime() : 0);
                         var uStr = uMs > 0 ? Qt.formatDateTime(new Date(uMs), "d.M.yyyy hh:mm") : "";
 
                         if (cStr !== "") {
                             timeStr = cStr;
-                            // Näytetään perässä jos muokattu
                             if (uStr !== "" && uStr !== cStr) {
-                                timeStr += " (Muokattu: " + uStr + ")";
+                                timeStr += " " + qsTr("(Edited: %1)").arg(uStr);
                             }
                         }
                     }
@@ -118,7 +112,7 @@ Page {
                     });
                 }
             } else if (data[0] === 'memo_queued') {
-                page.errorMessage = "Ei verkkoa, lisätty lähetysjonoon.";
+                page.errorMessage = qsTr("No network, added to queue.");
             } else if (data[0] === 'queue_synced') {
                 py.call('memos.api.fetch_memos', []);
             } else if (data[0] === 'error') {
@@ -163,7 +157,7 @@ Page {
             width: parent.width
 
             PageHeader {
-                title: "Memos"
+                title: "Memos" // Tuotemerkit (Brand names) voi jättää kääntämättä
             }
 
             Label {
@@ -181,7 +175,7 @@ Page {
 
         PullDownMenu {
             MenuItem {
-                text: "Asetukset"
+                text: qsTr("Settings")
                 onClicked: {
                     py.call('memos.api.get_settings', [], function(settings) {
                         var dialog = pageStack.push(Qt.resolvedUrl("SettingsDialog.qml"), {
@@ -195,7 +189,6 @@ Page {
                             page.listLineCount = dialog.savedLineCount;
                             page.listCoverMode = dialog.savedCoverMode;
 
-                            // HUOM: save_settings saa nyt 5 arvoa!
                             py.call('memos.api.save_settings', [dialog.savedUrl, dialog.savedToken, dialog.savedAutoUpload, dialog.savedLineCount, dialog.savedCoverMode], function() {
                                 py.call('memos.api.fetch_memos', [])
                             })
@@ -204,7 +197,7 @@ Page {
                 }
             }
             MenuItem {
-                text: "Uusi memo"
+                text: qsTr("New memo")
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"))
                     dialog.accepted.connect(function() {
@@ -215,9 +208,9 @@ Page {
                 }
             }
             MenuItem {
-                text: "Päivitä"
+                text: qsTr("Refresh")
                 onClicked: {
-                    page.errorMessage = "Päivitetään..."
+                    page.errorMessage = qsTr("Updating...")
                     py.call('memos.api.sync_queue', [], function() {
                         py.call('memos.api.fetch_memos', [])
                     })
@@ -232,7 +225,7 @@ Page {
 
             menu: ContextMenu {
                 MenuItem {
-                    text: "Muokkaa"
+                    text: qsTr("Edit")
                     visible: memoId !== "queued"
                     onClicked: {
                         var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"), {initialText: content})
@@ -244,7 +237,7 @@ Page {
                     }
                 }
                 MenuItem {
-                    text: "Poista"
+                    text: qsTr("Delete")
                     visible: memoId !== "queued"
                     onClicked: {
                         py.call('memos.api.delete_memo', [memoId], function() {
@@ -267,7 +260,6 @@ Page {
                     font.pixelSize: Theme.fontSizeExtraSmall
                     visible: text !== ""
 
-                    // Varmistetaan että pitkä "(Muokattu: ...)" -teksti wrappaa nätisti
                     width: parent.width
                     wrapMode: Text.WordWrap
                 }

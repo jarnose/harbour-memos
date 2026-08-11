@@ -14,7 +14,7 @@ Page {
         var html = rawText;
 
         html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2">[Kuva: $1]</a>');
+        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2">[Image: $1]</a>');
         html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
         html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
@@ -42,7 +42,7 @@ Page {
             visible: memoId !== "queued"
 
             MenuItem {
-                text: "Muokkaa"
+                text: qsTr("Edit")
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"), {initialText: memoContent})
                     dialog.accepted.connect(function() {
@@ -53,7 +53,7 @@ Page {
                 }
             }
             MenuItem {
-                text: "Poista"
+                text: qsTr("Delete")
                 onClicked: {
                     appWindow.py.call('memos.api.delete_memo', [memoId], function() {
                         pageStack.pop()
@@ -68,7 +68,7 @@ Page {
             spacing: Theme.paddingLarge
 
             PageHeader {
-                title: "Muistiinpano"
+                title: qsTr("Memo")
             }
 
             Label {
@@ -78,7 +78,7 @@ Page {
                 color: Theme.secondaryColor
                 font.pixelSize: Theme.fontSizeSmall
                 visible: memoTimestamp !== ""
-                wrapMode: Text.WordWrap // Varmistaa ettei katkea rumasti!
+                wrapMode: Text.WordWrap
             }
 
             Label {

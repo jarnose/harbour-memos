@@ -17,7 +17,7 @@ class MemosAPI:
         self.token = ""
         self.auto_upload = False
         self.line_count = 2
-        self.cover_mode = 0 # UUSI: 0 = Uusin luotu, 1 = Viimeksi muokattu
+        self.cover_mode = 0
 
         self.load_settings()
 
@@ -61,7 +61,7 @@ class MemosAPI:
                 }, f)
             return True
         except Exception as e:
-            pyotherside.send('error', f"Asetusten tallennus epäonnistui: {str(e)}")
+            pyotherside.send('error', f"Failed to save settings: {str(e)}")
             return False
 
     def save_to_queue(self, content):
@@ -144,7 +144,7 @@ class MemosAPI:
                 with open(self.cache_file, 'w') as f:
                     json.dump(memos_list, f)
         except Exception as e:
-            pyotherside.send('error', "Ei verkkoyhteyttä (näytetään välimuisti).")
+            pyotherside.send('error', "No network connection (showing cache).")
 
             if os.path.exists(self.cache_file):
                 try:
@@ -157,7 +157,7 @@ class MemosAPI:
             try:
                 with open(self.queue_file, 'r') as f:
                     queue = json.load(f)
-                    queued_memos = [{"name": "queued", "content": f"⏳ Odottaa lähetystä:\n{q}"} for q in queue]
+                    queued_memos = [{"name": "queued", "content": f"⏳ Waiting to sync:\n{q}"} for q in queue]
                     memos_list = queued_memos + memos_list
             except:
                 pass
@@ -168,7 +168,7 @@ class MemosAPI:
 
     def create_memo(self, content):
         if not self.base_url or not self.token:
-            pyotherside.send('error', "Aseta palvelimen osoite ja token asetuksista.")
+            pyotherside.send('error', "Set server URL and token in settings.")
             return False
 
         url = f"{self.base_url}/api/v1/memos"
@@ -191,7 +191,7 @@ class MemosAPI:
                 pyotherside.send('memo_queued', content)
                 return True
             else:
-                pyotherside.send('error', "Ei verkkoyhteyttä, eikä auto-upload ole päällä.")
+                pyotherside.send('error', "No network, and auto-upload is disabled.")
                 return False
 
     def delete_memo(self, memo_id):
@@ -211,7 +211,7 @@ class MemosAPI:
                 pyotherside.send('memo_deleted')
                 return True
         except Exception as e:
-            pyotherside.send('error', f"Poistovirhe: {str(e)}")
+            pyotherside.send('error', f"Delete error: {str(e)}")
             return False
 
     def edit_memo(self, memo_id, content):
@@ -233,7 +233,7 @@ class MemosAPI:
                 pyotherside.send('memo_edited')
                 return True
         except Exception as e:
-            pyotherside.send('error', f"Muokkausvirhe: {str(e)}")
+            pyotherside.send('error', f"Edit error: {str(e)}")
             return False
 
 api = MemosAPI()
