@@ -4,7 +4,7 @@
 <context>
     <name>FirstPage</name>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="84"/>
+        <location filename="../qml/pages/FirstPage.qml" line="83"/>
         <source>No memos</source>
         <translation>Ei muistiinpanoja</translation>
     </message>
@@ -14,37 +14,42 @@
         <translation>(Muokattu: %1)</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="115"/>
+        <location filename="../qml/pages/FirstPage.qml" line="120"/>
         <source>No network, added to queue.</source>
         <translation>Ei verkkoa, lisätty lähetysjonoon.</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="178"/>
+        <location filename="../qml/pages/FirstPage.qml" line="172"/>
+        <source>Search...</source>
+        <translation>Etsi...</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/FirstPage.qml" line="196"/>
         <source>Settings</source>
         <translation>Asetukset</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="200"/>
+        <location filename="../qml/pages/FirstPage.qml" line="218"/>
         <source>New memo</source>
         <translation>Uusi muistiinpano</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="211"/>
+        <location filename="../qml/pages/FirstPage.qml" line="229"/>
         <source>Refresh</source>
         <translation>Päivitä</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="213"/>
+        <location filename="../qml/pages/FirstPage.qml" line="231"/>
         <source>Updating...</source>
         <translation>Päivitetään...</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="228"/>
+        <location filename="../qml/pages/FirstPage.qml" line="247"/>
         <source>Edit</source>
         <translation>Muokkaa</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FirstPage.qml" line="240"/>
+        <location filename="../qml/pages/FirstPage.qml" line="259"/>
         <source>Delete</source>
         <translation>Poista</translation>
     </message>
@@ -52,17 +57,17 @@
 <context>
     <name>MemoPage</name>
     <message>
-        <location filename="../qml/pages/MemoPage.qml" line="45"/>
+        <location filename="../qml/pages/MemoPage.qml" line="20"/>
         <source>Edit</source>
         <translation>Muokkaa</translation>
     </message>
     <message>
-        <location filename="../qml/pages/MemoPage.qml" line="56"/>
+        <location filename="../qml/pages/MemoPage.qml" line="31"/>
         <source>Delete</source>
         <translation>Poista</translation>
     </message>
     <message>
-        <location filename="../qml/pages/MemoPage.qml" line="71"/>
+        <location filename="../qml/pages/MemoPage.qml" line="46"/>
         <source>Memo</source>
         <translation>Muistiinpano</translation>
     </message>

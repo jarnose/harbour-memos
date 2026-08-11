@@ -10,6 +10,9 @@ Page {
     property int listLineCount: 2
     property int listCoverMode: 0
 
+    // Tähän tallennetaan hakusana
+    property string searchText: ""
+
     Python {
         id: py
         Component.onCompleted: {
@@ -34,7 +37,7 @@ Page {
         onReceived: {
             if (data[0] === 'memos_fetched') {
                 page.errorMessage = "";
-                memoModel.clear();
+                memoModel.clear(); // Tyhjennetään vain haun alussa
                 var memos = data[1];
 
                 if (memos.length > 0) {
@@ -90,6 +93,7 @@ Page {
                         "timestamp": timeStr
                     });
                 }
+
             } else if (data[0] === 'memo_queued') {
                 page.errorMessage = qsTr("No network, added to queue.");
             } else if (data[0] === 'queue_synced') {
@@ -129,6 +133,7 @@ Page {
     }
 
     SilicaListView {
+        id: listView
         anchors.fill: parent
         model: memoModel
 
@@ -137,6 +142,19 @@ Page {
 
             PageHeader {
                 title: "Memos"
+            }
+
+            SearchField {
+                id: searchField
+                width: parent.width
+                placeholderText: qsTr("Search...")
+
+                // Päivitetään hakusana suoraan muuttujaan ilman listan tyhjentämistä!
+                onTextChanged: {
+                    page.searchText = text.toLowerCase();
+                }
+
+                EnterKey.onClicked: focus = false
             }
 
             Label {
@@ -190,6 +208,7 @@ Page {
                 text: qsTr("Refresh")
                 onClicked: {
                     page.errorMessage = qsTr("Updating...")
+                    searchField.text = ""
                     py.call('memos.api.sync_queue', [], function() {
                         py.call('memos.api.fetch_memos', [])
                     })
@@ -200,7 +219,15 @@ Page {
         delegate: ListItem {
             id: listItem
 
-            contentHeight: Math.max(memoColumn.height + (Theme.paddingLarge * 2), Theme.itemSizeSmall)
+            // --- SUODATUSLOGIIKKA: Ollaanko näkyvissä? ---
+            property string contentString: content ? content.toString().toLowerCase() : ""
+            property bool isMatch: page.searchText === "" || contentString.indexOf(page.searchText) !== -1
+
+            // Piilotetaan item täysin, jos se ei vastaa hakua
+            visible: isMatch
+            contentHeight: isMatch ? Math.max(memoColumn.height + (Theme.paddingLarge * 2), Theme.itemSizeSmall) : 0
+            height: isMatch ? contentHeight : 0
+            // ---------------------------------------------
 
             menu: ContextMenu {
                 MenuItem {
@@ -256,13 +283,12 @@ Page {
                     truncationMode: TruncationMode.Fade
                     font.pixelSize: Theme.fontSizeSmall
 
-                    // Python Markdown -päivitys
                     property string rawContent: content
                     onRawContentChanged: fetchHtml()
                     Component.onCompleted: fetchHtml()
 
                     function fetchHtml() {
-                        if (py) {
+                        if (py && isMatch) { // Muotoillaan teksti vain jos se on näkyvissä
                             py.call('memos.api.render_markdown', [rawContent], function(html) {
                                 memoText.text = html
                             })
