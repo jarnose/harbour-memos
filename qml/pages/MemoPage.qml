@@ -9,31 +9,6 @@ Page {
     property string memoContent
     property string memoTimestamp
 
-    function formatText(rawText) {
-        if (!rawText) return "";
-        var html = rawText;
-
-        html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2">[Image: $1]</a>');
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-
-        html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
-        html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
-        html = html.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
-
-        html = html.replace(/\*\*([^\*]+)\*\*/g, '<b>$1</b>');
-        html = html.replace(/(^|[^\w\*])\*([^\*]+)\*(?=[^\w\*]|$)/g, '$1<i>$2</i>');
-        html = html.replace(/(^|\s)(#[^\s]+)/g, '$1<font color="' + Theme.highlightColor + '">$2</font>');
-
-        html = html.replace(/\n/g, '<br>');
-        html = html.replace(/<\/h([1-3])><br>/g, '</h$1>');
-
-        html = html.replace(/(^|<br>)([-*]\s+)?\[ \]\s/g, '$1<font color="#888888">☐</font> ');
-        html = html.replace(/(^|<br>)([-*]\s+)?\[x\]\s/gi, '$1<font color="' + Theme.highlightColor + '">☑</font> ');
-
-        return html;
-    }
-
     SilicaFlickable {
         anchors.fill: parent
         contentHeight: column.height
@@ -82,18 +57,30 @@ Page {
             }
 
             Label {
+                id: memoLabel
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2*Theme.horizontalPageMargin
 
                 textFormat: Text.StyledText
-                text: formatText(memoContent)
-
                 linkColor: Theme.highlightColor
                 onLinkActivated: Qt.openUrlExternally(link)
 
                 color: Theme.primaryColor
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontSizeMedium
+
+                // Python Markdown -päivitys
+                property string rawContent: memoContent
+                onRawContentChanged: fetchHtml()
+                Component.onCompleted: fetchHtml()
+
+                function fetchHtml() {
+                    if (appWindow.py) {
+                        appWindow.py.call('memos.api.render_markdown', [rawContent], function(html) {
+                            memoLabel.text = html
+                        })
+                    }
+                }
             }
         }
     }

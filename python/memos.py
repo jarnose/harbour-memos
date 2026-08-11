@@ -1,7 +1,15 @@
+import sys
 import os
 import json
 import urllib.request
 import pyotherside
+import re
+
+# Lisätään libs-kansio Pythonin polkuun
+base_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(base_dir, 'libs'))
+
+import mistune
 
 class MemosAPI:
     def __init__(self):
@@ -13,6 +21,9 @@ class MemosAPI:
         self.queue_file = os.path.join(config_dir, 'queue.json')
         self.cache_file = os.path.join(config_dir, 'cache.json')
 
+        # Alustetaan Markdown-parseri
+        self.md = mistune.create_markdown(escape=True)
+
         self.base_url = ""
         self.token = ""
         self.auto_upload = False
@@ -20,6 +31,16 @@ class MemosAPI:
         self.cover_mode = 0
 
         self.load_settings()
+
+    def render_markdown(self, content):
+        if not content: return ""
+        # Parsitaan Markdown HTML:ksi
+        html = self.md(content)
+        # Lisätään korostusväri tageille (#tag -> #tag)
+        html = re.sub(r'(#\w+)', r'<font color="#00d1e5">\1</font>', html)
+        # Checkbox-tuki
+        html = html.replace('[ ]', '☐').replace('[x]', '☑')
+        return html
 
     def load_settings(self):
         if os.path.exists(self.config_file):

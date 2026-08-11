@@ -10,27 +10,6 @@ Page {
     property int listLineCount: 2
     property int listCoverMode: 0
 
-    function formatText(rawText) {
-        if (!rawText) return "";
-        var html = rawText;
-
-        html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2">[Image: $1]</a>');
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-        html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
-        html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
-        html = html.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
-        html = html.replace(/\*\*([^\*]+)\*\*/g, '<b>$1</b>');
-        html = html.replace(/(^|[^\w\*])\*([^\*]+)\*(?=[^\w\*]|$)/g, '$1<i>$2</i>');
-        html = html.replace(/(^|\s)(#[^\s]+)/g, '$1<font color="' + Theme.highlightColor + '">$2</font>');
-        html = html.replace(/\n/g, '<br>');
-        html = html.replace(/<\/h([1-3])><br>/g, '</h$1>');
-        html = html.replace(/(^|<br>)([-*]\s+)?\[ \]\s/g, '$1<font color="#888888">☐</font> ');
-        html = html.replace(/(^|<br>)([-*]\s+)?\[x\]\s/gi, '$1<font color="' + Theme.highlightColor + '">☑</font> ');
-
-        return html;
-    }
-
     Python {
         id: py
         Component.onCompleted: {
@@ -157,7 +136,7 @@ Page {
             width: parent.width
 
             PageHeader {
-                title: "Memos" // Tuotemerkit (Brand names) voi jättää kääntämättä
+                title: "Memos"
             }
 
             Label {
@@ -269,15 +248,26 @@ Page {
                     width: parent.width
 
                     textFormat: Text.StyledText
-                    text: formatText(content)
                     linkColor: Theme.highlightColor
-
                     color: listItem.highlighted ? Theme.highlightColor : Theme.primaryColor
                     wrapMode: Text.WordWrap
 
                     maximumLineCount: page.listLineCount === 0 ? 1000 : page.listLineCount
                     truncationMode: TruncationMode.Fade
                     font.pixelSize: Theme.fontSizeSmall
+
+                    // Python Markdown -päivitys
+                    property string rawContent: content
+                    onRawContentChanged: fetchHtml()
+                    Component.onCompleted: fetchHtml()
+
+                    function fetchHtml() {
+                        if (py) {
+                            py.call('memos.api.render_markdown', [rawContent], function(html) {
+                                memoText.text = html
+                            })
+                        }
+                    }
                 }
             }
 
