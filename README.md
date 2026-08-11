@@ -17,6 +17,7 @@ A native Sailfish OS client application for [Memos](https://usememos.com/). It a
 * **QML / Silica:** Sailfish OS native user interface framework.
 * **PyOtherSide:** Bridges QML and Python seamlessly.
 * **Python 3:** Backend logic, network requests (`urllib`), and local caching (`json`).
+* **Mistune:** A fast, standard-compliant Markdown parser for Python used to render memos into rich text HTML.
 
 ## Building & Installation
 
