@@ -3,7 +3,6 @@ import os
 import stat
 import json
 import re
-import html as html_entities
 import hashlib
 import mimetypes
 import urllib.request
@@ -16,6 +15,155 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(base_dir, 'libs'))
 
 import mistune
+from mistune.util import striptags, safe_entity
+from mistune.util import escape as escape_text
+
+
+class MemosRenderer(mistune.HTMLRenderer):
+    """Renders memo markdown to the HTML Qt's StyledText displays.
+
+    This overrides specific mistune render hooks (image/link/text/
+    task_list_item) instead of the previous approach of pre-processing
+    the raw markdown text with regexes and then post-processing the
+    rendered HTML string with more regexes. That older approach worked,
+    but every one of its edge cases (double-escaped "&" in URLs, the
+    "file://" cache paths needing to be protected/restored around mistune,
+    hashtag styling risking matching inside a tag) existed only because it
+    was working around mistune from the outside. Hooking mistune's own
+    per-token renderer methods gets the already-parsed pieces (a URL, a
+    plain-text run, a title) directly as arguments, so there's nothing
+    left to regex out of finished HTML.
+    """
+
+    def __init__(self, api):
+        super().__init__(escape=True)
+        self.api = api
+        # Set by render_markdown() before each call, since the available
+        # width depends on the QML item asking for it, not on the memo
+        # content itself.
+        self.img_width = 800
+
+    def safe_url(self, url):
+        # HTMLRenderer's default safe_url() treats "file://" as an
+        # unrecognized/harmful protocol and replaces it with
+        # '#harmful-link'. We generate every file:// URL ourselves (hashed
+        # filenames in our own local image cache), so it's safe to allow.
+        if url.startswith('file://'):
+            return escape_text(url)
+        return super().safe_url(url)
+
+    def _resolve_url(self, url, with_token):
+        if not url.startswith('/'):
+            return url
+        resolved = self.api.base_url.rstrip('/') + url
+        # Qt's StyledText can't send an Authorization header when it
+        # fetches an <img src="...">, so a token has to be embedded in the
+        # URL for images to load. We deliberately do NOT do this for
+        # plain links: those open in the external browser via
+        # Qt.openUrlExternally, and embedding the token there would leak
+        # it into browser history/referrers.
+        if with_token and self.api.token:
+            sep = '&' if '?' in resolved else '?'
+            resolved += f'{sep}token={self.api.token}'
+        return resolved
+
+    def image(self, text, url, title=None):
+        resolved = self._resolve_url(url, with_token=True)
+        src = self.safe_url(resolved)
+        alt = striptags(text)
+        width, height = self._sized(resolved)
+        s = f'<img src="{src}" width="{width}" height="{height}" alt="{alt}"'
+        if title:
+            s += f' title="{safe_entity(title)}"'
+        return s + ' />'
+
+    def link(self, text, url, title=None):
+        resolved = self._resolve_url(url, with_token=False)
+        return super().link(text, resolved, title)
+
+    def _sized(self, url):
+        """Qt's StyledText renders <img> at its natural size unless both
+        width and height are given, so always supply both - falling back
+        to a square guess if the real dimensions can't be determined."""
+        target = max(1, int(self.img_width))
+        dims = self.api._image_dimensions(url)
+        if dims and dims[0] > 0 and dims[1] > 0:
+            natural_width, natural_height = dims
+            display_width = min(natural_width, target)
+            display_height = max(1, round(natural_height * display_width / natural_width))
+            return display_width, display_height
+        return target, target
+
+    _HASHTAG_RE = re.compile(r'(?<![\w&])(#\w+)')
+
+    def text(self, text):
+        # Operating on the raw (not-yet-escaped) text run means "#tag"
+        # detection never has to worry about matching inside a real HTML
+        # tag or an entity reference - there aren't any at this point,
+        # since escaping happens per-segment below, after splitting.
+        parts = self._HASHTAG_RE.split(text)
+        out = []
+        for i, part in enumerate(parts):
+            if not part:
+                continue
+            if i % 2 == 1:
+                out.append(f'<font color="#00d1e5">{escape_text(part)}</font>')
+            else:
+                out.append(super().text(part))
+        return ''.join(out)
+
+    def task_list_item(self, text, checked=False):
+        # Requires the 'task_lists' plugin, which identifies genuine
+        # "- [ ] foo" / "- [x] foo" list items during parsing - unlike
+        # the previous blind str.replace('[ ]', ...) over the whole
+        # rendered HTML, which would also match "[ ]" or "[x]" appearing
+        # anywhere else in a memo (plain prose, a code block, etc).
+        #
+        # NOTE: deliberately a plain <li>, no class attribute. Qt's
+        # Text.StyledText only understands a narrow, specific HTML
+        # subset - an unrecognized attribute like class="..." on <li>
+        # is enough to break its line-layout for that item (verified:
+        # it's the one difference from the plain <li> the old blind
+        # str.replace() approach produced, which rendered correctly).
+        mark = '☑' if checked else '☐'
+        if text.startswith('<p>'):
+            text = text.replace('<p>', '<p>' + mark + ' ', 1)
+        else:
+            text = mark + ' ' + text
+        return '<li>' + text + '</li>\n'
+
+    # Qt's Text.StyledText has no real block/grid layout engine - it does
+    # not lay out <table>/<tr>/<td> as a grid at all, so real table
+    # markup (which the 'table' plugin produces by default) just
+    # collapses into a single run of text with no visible structure.
+    # Render a lightweight text table instead: one line per row (via
+    # <br/>), cells separated by " | ", header cells bolded. Not an
+    # aligned grid (StyledText has no monospace/column guarantees
+    # either), but it's actually readable, which real <table> markup
+    # currently is not.
+    _TABLE_CELL_SEP = ' | '
+
+    def table(self, text):
+        return text if text.endswith('\n') else text + '\n'
+
+    def table_head(self, text):
+        return self._strip_trailing_cell_sep(text) + '<br/>\n'
+
+    def table_body(self, text):
+        return text
+
+    def table_row(self, text):
+        return self._strip_trailing_cell_sep(text) + '<br/>\n'
+
+    def table_cell(self, text, align=None, head=False):
+        if head:
+            text = f'<b>{text}</b>'
+        return text + self._TABLE_CELL_SEP
+
+    def _strip_trailing_cell_sep(self, text):
+        if text.endswith(self._TABLE_CELL_SEP):
+            return text[:-len(self._TABLE_CELL_SEP)]
+        return text
 
 class MemosAPI:
     def __init__(self):
@@ -33,8 +181,8 @@ class MemosAPI:
         if not os.path.exists(self.image_cache_dir):
             os.makedirs(self.image_cache_dir)
         self.md = mistune.create_markdown(
-            escape=True,
-            plugins=['table', 'strikethrough']
+            renderer=MemosRenderer(self),
+            plugins=['table', 'strikethrough', 'task_lists']
         )
         self.base_url = ''
         self.token = ''
@@ -93,29 +241,6 @@ class MemosAPI:
             url = inner_url or outer_url
             return f'![{alt}]({url})'
         return pattern.sub(replace, content)
-
-    def _protect_local_urls(self, content):
-        mapping = {}
-
-        def replace(match):
-            url = match.group(1)
-            key = f'MEMOSLOCALIMAGE{len(mapping)}END'
-            mapping[key] = url
-            return key
-        protected = re.sub('(?<![A-Za-z0-9])(file:///[^\\s)\\]"<>]+)', replace, content)
-        return (protected, mapping)
-
-    def _restore_local_urls(self, html, mapping):
-        for key, url in mapping.items():
-            html = html.replace(key, url)
-        return html
-
-    def _style_hashtags_in_text(self, html):
-        parts = re.split('(<[^>]+>)', html)
-        for i in range(0, len(parts), 2):
-            text = parts[i]
-            parts[i] = re.sub('(?<![\\w&])(#\\w+)', '<font color="#00d1e5">\\1</font>', text)
-        return ''.join(parts)
 
     _JPEG_SOF_MARKERS = (
         0xC0, 0xC1, 0xC2, 0xC3,
@@ -442,76 +567,17 @@ class MemosAPI:
 
         return pattern.sub(replace, content)
 
-    # UUSI: Lisätty img_width parametri (oletuksena 800)
     def render_markdown(self, content, img_width=800):
         if not content:
             return ''
         content = self._normalize_image_markdown(content)
-        protected_content, local_urls = self._protect_local_urls(content)
-
-        html = self.md(protected_content)
-        html = html.replace('[ ]', '☐')
-        html = html.replace('[x]', '☑')
-        html = html.replace('[X]', '☑')
-        html = self._style_hashtags_in_text(html)
-
-        def process_url(match):
-            attr = match.group(1)
-            # mistune HTML-escapes attribute values (e.g. "&" -> "&amp;"),
-            # so unescape before manipulating the URL and re-escape once at
-            # the end, otherwise a "&" in a real URL ends up double-escaped
-            # (or a raw "&" from an appended query param ends up unescaped)
-            # and produces malformed HTML.
-            url = html_entities.unescape(match.group(2))
-            if url in local_urls:
-                url = local_urls[url]
-            if url.startswith('/'):
-                url = self.base_url.rstrip('/') + url
-                # Qt's StyledText renderer can't send an Authorization
-                # header when it fetches an <img src="...">, so a token
-                # has to be embedded in the URL for images to load at all.
-                # We deliberately do NOT do this for plain links (href):
-                # those get opened in the external browser via
-                # Qt.openUrlExternally, which would leak the API token into
-                # browser history / referrers. Non-image links to the
-                # memos server therefore only work if the server allows
-                # unauthenticated access to that resource.
-                if attr == 'src' and self.token:
-                    separator = '&' if '?' in url else '?'
-                    url += f'{separator}token={self.token}'
-
-            # Qt StyledText käsittelee img-tagit inline-kuvina.
-            # Pelkkä width ei ole riittävä kaikissa Qt 5 -versioissa:
-            # anna aina sekä width että height, säilyttäen kuvan kuvasuhde.
-            if attr == 'src':
-                target_width = max(1, int(img_width))
-                dimensions = self._image_dimensions(url)
-
-                if dimensions:
-                    natural_width, natural_height = dimensions
-                    if natural_width > 0 and natural_height > 0:
-                        display_width = min(natural_width, target_width)
-                        display_height = max(
-                            1,
-                            int(round(natural_height * display_width / natural_width))
-                        )
-                        return (
-                            f'src="{html_entities.escape(url, quote=True)}" '
-                            f'width="{display_width}" height="{display_height}"'
-                        )
-
-                # Jos kokoa ei saada selville, käytetään silti molempia
-                # mittoja, jotta kuva ei jää alkuperäiseen kokoonsa.
-                return (
-                    f'src="{html_entities.escape(url, quote=True)}" '
-                    f'width="{target_width}" height="{target_width}"'
-                )
-            return f'{attr}="{html_entities.escape(url, quote=True)}"'
-
-        html = re.sub('(src|href)="([^"]+)"', process_url, html)
-        html = self._restore_local_urls(html, local_urls)
-
-        return html
+        # The renderer resolves relative URLs against self.base_url/token
+        # and sizes images itself (see MemosRenderer); img_width is the
+        # only thing that varies per call (it depends on the QML item
+        # asking, not on the memo content), so it's set here just before
+        # rendering.
+        self.md.renderer.img_width = img_width
+        return self.md(content)
 
     def load_settings(self):
         if os.path.exists(self.config_file):
