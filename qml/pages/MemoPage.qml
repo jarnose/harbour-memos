@@ -19,19 +19,32 @@ Page {
             MenuItem {
                 text: qsTr("Edit")
                 onClicked: {
-                    var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"), {initialText: memoContent})
+                    var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"), {initialText: memoContent, memoId: memoId})
                     dialog.accepted.connect(function() {
                         appWindow.py.call('memos.api.edit_memo', [memoId, dialog.memoContent], function() {
                             memoContent = dialog.memoContent
                         })
+                    })
+                    dialog.rejected.connect(function() {
+                        // Any attachments uploaded during this (now
+                        // cancelled) edit session are already linked to
+                        // this real memo but never got saved into its
+                        // visible content - clean them up rather than
+                        // leaving them behind unreferenced.
+                        var attachments = dialog.uploadedAttachments;
+                        for (var i = 0; i < attachments.length; i++) {
+                            appWindow.py.call('memos.api.delete_attachment', [attachments[i]])
+                        }
                     })
                 }
             }
             MenuItem {
                 text: qsTr("Delete")
                 onClicked: {
-                    appWindow.py.call('memos.api.delete_memo', [memoId], function() {
-                        pageStack.pop()
+                    Remorse.execute(page, qsTr("Deleting"), function() {
+                        appWindow.py.call('memos.api.delete_memo', [memoId], function() {
+                            pageStack.pop()
+                        })
                     })
                 }
             }

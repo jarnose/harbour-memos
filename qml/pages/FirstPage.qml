@@ -9,6 +9,10 @@ Page {
     property string errorMessage: ""
     property int listLineCount: 2
     property int listCoverMode: 0
+    // Tracks whether there's anything waiting in the offline queue, so the
+    // periodic sync timer doesn't keep firing (and waking up Python) for
+    // no reason when there's nothing to sync.
+    property bool hasQueuedItems: false
 
     // Tähän tallennetaan kaikki haetut muistiinpanot
     property var allMemos: []
@@ -31,6 +35,41 @@ Page {
             }
 
             memoModel.append(m);
+        }
+    }
+
+    // Saves a NewMemoDialog opened for a *brand new* memo. If an attachment
+    // was added during composition, NewMemoDialog already silently created
+    // the memo at that point (so the attachment could link to something
+    // real) - in that case this just saves the final text into it. Otherwise
+    // (no attachments were added) it creates the memo now as normal.
+    function createMemoFromDialog(dialog) {
+        if (dialog.memoWasCreatedDuringComposition && dialog.memoId !== "") {
+            py.call('memos.api.edit_memo', [dialog.memoId, dialog.memoContent], function() {
+                py.call('memos.api.fetch_memos', [])
+            })
+        } else {
+            py.call('memos.api.create_memo', [dialog.memoContent], function() {
+                py.call('memos.api.fetch_memos', [])
+            })
+        }
+    }
+
+    // If the dialog is cancelled after attachments were uploaded during
+    // composition, clean those up too - they'd otherwise stay uploaded and
+    // linked (or orphaned, for a cancelled brand-new memo) despite never
+    // being saved into any visible memo content. force_queue=true on the
+    // memo delete ensures that specific cleanup is retried later even with
+    // auto-upload disabled, since it's not something the user asked for.
+    function cleanupCancelledMemoDialog(dialog) {
+        var attachments = dialog.uploadedAttachments;
+        for (var i = 0; i < attachments.length; i++) {
+            py.call('memos.api.delete_attachment', [attachments[i]])
+        }
+        if (dialog.memoWasCreatedDuringComposition && dialog.memoId !== "") {
+            py.call('memos.api.delete_memo', [dialog.memoId, true], function() {
+                py.call('memos.api.fetch_memos', [])
+            })
         }
     }
 
@@ -122,10 +161,26 @@ Page {
 
             } else if (data[0] === 'memo_queued') {
                 page.errorMessage = qsTr("No network, added to queue.");
+                page.hasQueuedItems = true;
             } else if (data[0] === 'queue_synced') {
+                page.hasQueuedItems = false;
                 py.call('memos.api.fetch_memos', []);
+            } else if (data[0] === 'queue_status') {
+                // Authoritative from the backend: whether the offline queue
+                // has anything pending right now, including queued deletes
+                // (which don't show up as a visible marker in the memo
+                // list itself, unlike queued creates/edits).
+                page.hasQueuedItems = !!data[1];
             } else if (data[0] === 'error') {
                 page.errorMessage = data[1];
+            } else if (data[0] === 'success') {
+                // data[1] is a translation key from the backend, not
+                // user-facing text, so it's translated here in QML.
+                if (data[1] === 'cache_cleared') {
+                    page.errorMessage = qsTr("Caches cleared!");
+                } else {
+                    page.errorMessage = data[1];
+                }
             } else if (data[0] === 'memo_edited' || data[0] === 'memo_deleted') {
                 py.call('memos.api.fetch_memos', []);
             }
@@ -137,9 +192,10 @@ Page {
         onRequestNewMemo: {
             var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"))
             dialog.accepted.connect(function() {
-                py.call('memos.api.create_memo', [dialog.memoContent], function() {
-                    py.call('memos.api.fetch_memos', [])
-                })
+                page.createMemoFromDialog(dialog)
+            })
+            dialog.rejected.connect(function() {
+                page.cleanupCancelledMemoDialog(dialog)
             })
         }
     }
@@ -147,7 +203,9 @@ Page {
     Timer {
         id: syncTimer
         interval: 15000
-        running: true
+        // Only poll for a retry while something is actually queued, instead
+        // of waking up the Python side every 15s indefinitely.
+        running: page.hasQueuedItems
         repeat: true
         onTriggered: {
             py.call('memos.api.sync_queue', [])
@@ -235,9 +293,10 @@ Page {
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"))
                     dialog.accepted.connect(function() {
-                        py.call('memos.api.create_memo', [dialog.memoContent], function() {
-                            py.call('memos.api.fetch_memos', [])
-                        })
+                        page.createMemoFromDialog(dialog)
+                    })
+                    dialog.rejected.connect(function() {
+                        page.cleanupCancelledMemoDialog(dialog)
                     })
                 }
             }
@@ -270,11 +329,14 @@ Page {
                     text: qsTr("Edit")
                     visible: memoId !== "queued"
                     onClicked: {
-                        var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"), {initialText: content})
+                        var dialog = pageStack.push(Qt.resolvedUrl("NewMemoDialog.qml"), {initialText: content, memoId: memoId})
                         dialog.accepted.connect(function() {
                             py.call('memos.api.edit_memo', [memoId, dialog.memoContent], function() {
                                 py.call('memos.api.fetch_memos', [])
                             })
+                        })
+                        dialog.rejected.connect(function() {
+                            page.cleanupCancelledMemoDialog(dialog)
                         })
                     }
                 }
@@ -282,8 +344,10 @@ Page {
                     text: qsTr("Delete")
                     visible: memoId !== "queued"
                     onClicked: {
-                        py.call('memos.api.delete_memo', [memoId], function() {
-                            py.call('memos.api.fetch_memos', [])
+                        listItem.remorseAction(qsTr("Deleting"), function() {
+                            py.call('memos.api.delete_memo', [memoId], function() {
+                                py.call('memos.api.fetch_memos', [])
+                            })
                         })
                     }
                 }

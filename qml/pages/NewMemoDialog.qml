@@ -11,6 +11,28 @@ Dialog {
     property string initialText: ""
     property alias memoContent: memoTextArea.text
 
+    // The memo's server id ("memos/123"). Passed in when editing an
+    // existing memo. When composing a brand new memo, this starts empty
+    // and gets filled in the moment the first attachment is added (see
+    // below) - because attachments can only be reliably linked to a memo
+    // that already exists, we create the memo early instead of waiting
+    // for Save.
+    property string memoId: ""
+
+    // True if we silently created the memo mid-composition (because an
+    // attachment was added) rather than it already existing before this
+    // dialog opened. Save then needs to *edit* that memo instead of
+    // creating a new one, and Cancel needs to clean it up.
+    property bool memoWasCreatedDuringComposition: false
+
+    // Names of every attachment successfully uploaded during this dialog
+    // session (whether composing a new memo or editing an existing one).
+    // If the dialog is cancelled, these get deleted again - otherwise they
+    // stay uploaded and linked to the memo (or, for a cancelled new memo,
+    // become an orphaned "unused" attachment) despite never actually being
+    // saved into any visible memo content.
+    property var uploadedAttachments: []
+
     // Tieto siitä, ladataanko kuvaa parhaillaan
     property bool isUploading: false
 
@@ -37,26 +59,66 @@ Dialog {
 
                     picker.selectedContentPropertiesChanged.connect(function() {
                         var filePath = picker.selectedContentProperties.filePath
-                        if (filePath) {
-                            dialog.isUploading = true
+                        if (!filePath) {
+                            return
+                        }
 
-                            // Kutsutaan Pythonia lataamaan kuva
-                            appWindow.py.call('memos.api.upload_resource', [filePath], function(result) {
+                        dialog.isUploading = true
+
+                        function doUpload() {
+                            // memoId is now known either way (existing memo,
+                            // or the one we just silently created below), so
+                            // the attachment links to it immediately.
+                            appWindow.py.call('memos.api.upload_resource', [filePath, dialog.memoId], function(result) {
                                 dialog.isUploading = false
 
-                                // Jos tulos alkaa '!' tai '[', se on onnistunut markdown-linkki
-                                if (result.indexOf("![") === 0 || result.indexOf("[") === 0) {
-                                    // Lisätään rivinvaihdot, jos tekstiä on jo
+                                if (result && result.ok && result.markdown) {
                                     if (memoTextArea.text.length > 0 && !memoTextArea.text.endsWith("\n")) {
                                         memoTextArea.text += "\n\n"
                                     }
-                                    memoTextArea.text += result + "\n"
+                                    memoTextArea.text += result.markdown + "\n"
+
+                                    if (result.name) {
+                                        var updated = dialog.uploadedAttachments.slice()
+                                        updated.push(result.name)
+                                        dialog.uploadedAttachments = updated
+                                    }
                                 } else {
-                                    // Näytetään virheteksti hetken aikaa placeholderissa (tai logissa)
-                                    console.log("Upload failed: " + result)
-                                    memoTextArea.placeholderText = result
+                                    var errMsg = (result && result.error) ? result.error : qsTr("Upload failed")
+                                    console.log("Upload failed: " + errMsg)
+                                    memoTextArea.placeholderText = errMsg
                                 }
                             })
+                        }
+
+                        if (dialog.memoId === "") {
+                            // Brand new memo and this is the first attachment:
+                            // create the memo now (with whatever's been typed
+                            // so far, or a placeholder space if nothing yet)
+                            // so the upload has a real memo to link to.
+                            //
+                            // allow_queue=false: if this fails (e.g. offline),
+                            // it must NOT get silently queued for later like
+                            // a normal create would - otherwise Save would go
+                            // on to create a second, separate memo from the
+                            // final text, leaving this placeholder one behind
+                            // as a stray near-empty duplicate once both sync.
+                            // Attaching a photo just isn't possible offline.
+                            var placeholder = memoTextArea.text.length > 0 ? memoTextArea.text : " "
+                            appWindow.py.call('memos.api.create_memo', [placeholder, false], function(createResult) {
+                                if (createResult && createResult.ok && createResult.name) {
+                                    dialog.memoId = createResult.name
+                                    dialog.memoWasCreatedDuringComposition = true
+                                    doUpload()
+                                } else {
+                                    dialog.isUploading = false
+                                    var err = (createResult && createResult.error) ? createResult.error : qsTr("Couldn't prepare memo for attachment")
+                                    console.log("Provisional memo creation failed: " + err)
+                                    memoTextArea.placeholderText = err
+                                }
+                            })
+                        } else {
+                            doUpload()
                         }
                     })
                 }

@@ -1,7 +1,9 @@
 import sys
 import os
+import stat
 import json
 import re
+import html as html_entities
 import hashlib
 import mimetypes
 import urllib.request
@@ -19,7 +21,11 @@ class MemosAPI:
     def __init__(self):
         config_dir = os.path.expanduser('~/.config/harbour-memos')
         if not os.path.exists(config_dir):
-            os.makedirs(config_dir)
+            os.makedirs(config_dir, mode=0o700)
+        else:
+            # An existing install (from before this was restricted) may
+            # still have the old, more permissive directory mode.
+            self._secure_dir(config_dir)
         self.config_file = os.path.join(config_dir, 'settings.json')
         self.queue_file = os.path.join(config_dir, 'queue.json')
         self.cache_file = os.path.join(config_dir, 'cache.json')
@@ -40,6 +46,32 @@ class MemosAPI:
     def _send_error(self, message):
         try:
             pyotherside.send('error', str(message))
+        except Exception:
+            pass
+
+    def _send_success(self, message_key, message_args=None):
+        # Sends a success/info notification identified by a translation key
+        # rather than a hardcoded, already-localized string, so the QML side
+        # can translate it with qsTr() instead of displaying raw backend text.
+        try:
+            pyotherside.send('success', message_key, message_args or {})
+        except Exception:
+            pass
+
+    def _secure_file(self, path):
+        # Restrict sensitive files (settings containing the API token) to
+        # owner-only read/write.
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        except Exception:
+            pass
+
+    def _secure_dir(self, path):
+        # Same idea as _secure_file(), but for directories: needs the
+        # execute bit too, or the owner loses the ability to traverse/list
+        # the directory at all (S_IRUSR|S_IWUSR alone is not enough).
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         except Exception:
             pass
 
@@ -85,6 +117,40 @@ class MemosAPI:
             parts[i] = re.sub('(?<![\\w&])(#\\w+)', '<font color="#00d1e5">\\1</font>', text)
         return ''.join(parts)
 
+    _JPEG_SOF_MARKERS = (
+        0xC0, 0xC1, 0xC2, 0xC3,
+        0xC5, 0xC6, 0xC7,
+        0xC9, 0xCA, 0xCB,
+        0xCD, 0xCE, 0xCF,
+    )
+
+    def _jpeg_sof_present(self, data):
+        """Quick scan: does the buffer so far contain a complete SOF segment?
+        Used to stop reading a JPEG early once we have enough data."""
+        pos = 2
+        length = len(data)
+        while pos + 9 < length:
+            if data[pos] != 0xFF:
+                pos += 1
+                continue
+            marker = data[pos + 1]
+            pos += 2
+            if marker in (0xD8, 0xD9):
+                continue
+            if marker == 0xDA:
+                return False
+            if pos + 2 > length:
+                return False
+            seglen = int.from_bytes(data[pos:pos + 2], 'big')
+            if seglen < 2:
+                return False
+            if marker in self._JPEG_SOF_MARKERS:
+                return pos + seglen <= length
+            if pos + seglen > length:
+                return False
+            pos += seglen
+        return False
+
     def _image_dimensions(self, path_or_url):
         """Return (width, height) for a cached local image, or None."""
         try:
@@ -94,9 +160,26 @@ class MemosAPI:
             path = urllib.parse.unquote(path_or_url[7:])
             with open(path, 'rb') as f:
                 data = f.read(65536)
+                is_jpeg = data.startswith(b'\xff\xd8\xff')
+                # A JPEG's SOF marker (which carries the dimensions) can sit
+                # after a large embedded EXIF/ICC profile and fall outside
+                # the first 64KB. Keep reading in chunks (bounded, so we
+                # never load an entire huge file into memory) until we
+                # either find it or give up.
+                while is_jpeg and len(data) < 8 * 1024 * 1024:
+                    more = f.read(65536)
+                    if not more:
+                        break
+                    data += more
+                    if self._jpeg_sof_present(data):
+                        break
 
             # PNG
-            if data.startswith(b'\\x89PNG\\r\\n\\x1a\\n') and len(data) >= 24:
+            # NOTE: this literal previously had doubled backslashes
+            # (b'\\x89PNG\\r\\n\\x1a\\n'), which matches the literal text
+            # "\x89PNG..." rather than the real binary PNG signature, so
+            # this branch never matched an actual PNG file.
+            if data.startswith(b'\x89PNG\r\n\x1a\n') and len(data) >= 24:
                 import struct
                 return struct.unpack('>II', data[16:24])
 
@@ -113,7 +196,9 @@ class MemosAPI:
                 return (abs(w), h)
 
             # JPEG
-            if data.startswith(b'\\xff\\xd8\\xff'):
+            # Same doubled-backslash issue as PNG above - fixed to match
+            # the real JPEG SOI marker bytes.
+            if data.startswith(b'\xff\xd8\xff'):
                 pos = 2
                 length = len(data)
                 while pos + 9 < length:
@@ -207,6 +292,19 @@ class MemosAPI:
         return name
 
     def _attachment_url(self, attachment):
+        # Prefer a URL the server itself hands us (field names differ across
+        # usememos versions/forks: externalLink, url, ...) over reconstructing
+        # one, since the /file/... path scheme has changed between releases
+        # and guessing it is fragile.
+        for field in ('externalLink', 'url', 'link'):
+            server_url = attachment.get(field)
+            if server_url:
+                server_url = str(server_url)
+                if server_url.startswith('http://') or server_url.startswith('https://'):
+                    return server_url
+                if server_url.startswith('/'):
+                    return self.base_url.rstrip('/') + server_url
+
         uid = self._attachment_uid(attachment)
         filename = str(attachment.get('filename', 'attachment'))
         return f"{self.base_url.rstrip('/')}/file/attachments/{uid}/{urllib.request.quote(filename, safe='')}"
@@ -225,14 +323,40 @@ class MemosAPI:
             actual_type, extension = self._detect_image_type(data, content_type or declared_type, filename)
             if not actual_type.startswith('image/'):
                 return None
-            identity = (str(attachment.get('name', '')) + '\x00' + str(attachment.get('updateTime', '')) + '\x00').encode('utf-8') + data
-            digest = hashlib.sha256(identity).hexdigest()
             if not extension:
                 extension = os.path.splitext(filename)[1].lower()
             if not extension:
                 extension = '.img'
+            # Identity is the content hash alone (not name/updateTime) so
+            # that the same image cached via an inline markdown reference
+            # (_cache_inline_images) and via this memo-attachments path
+            # resolve to the exact same cache file - otherwise the same
+            # photo can be shown twice in one memo.
+            digest = hashlib.sha256(data).hexdigest()
             local_name = digest + extension
             local_path = os.path.join(self.image_cache_dir, local_name)
+            if not os.path.exists(local_path):
+                with open(local_path, 'wb') as f:
+                    f.write(data)
+            return 'file://' + local_path
+        except Exception:
+            return None
+
+    def _download_generic_attachment(self, attachment):
+        """Download any attachment (not just images) into the local cache and
+        return a file:// URL. Used so non-image attachments can be linked
+        without exposing the API token in an externally-opened URL."""
+        filename = str(attachment.get('filename', 'attachment'))
+        url = self._attachment_url(attachment)
+        try:
+            req = urllib.request.Request(url, headers=self._auth_headers(), method='GET')
+            with urllib.request.urlopen(req, timeout=20) as response:
+                data = response.read()
+            if not data:
+                return None
+            digest = hashlib.sha256(data).hexdigest()
+            ext = os.path.splitext(filename)[1] or ''
+            local_path = os.path.join(self.image_cache_dir, digest + ext)
             if not os.path.exists(local_path):
                 with open(local_path, 'wb') as f:
                     f.write(data)
@@ -249,15 +373,24 @@ class MemosAPI:
         for attachment in attachments:
             filename = str(attachment.get('filename', 'attachment'))
             attachment_type = str(attachment.get('type', ''))
-            if not attachment_type.startswith('image/'):
-                continue
-            local_url = self._download_attachment(attachment)
-            if not local_url:
-                continue
-            if local_url in content:
-                continue
-            alt = filename.replace('\n', ' ').strip() or 'image'
-            added.append(f'![{alt}]({local_url})')
+
+            if attachment_type.startswith('image/'):
+                local_url = self._download_attachment(attachment)
+                if not local_url or local_url in content:
+                    continue
+                alt = filename.replace('\n', ' ').strip() or 'image'
+                added.append(f'![{alt}]({local_url})')
+            else:
+                # Non-image attachments (PDFs, docs, etc.) were previously
+                # dropped entirely. Download them (using the auth header,
+                # not a URL query token) and link to the local copy so the
+                # link works without leaking the API token when opened
+                # externally.
+                local_url = self._download_generic_attachment(attachment)
+                if not local_url or local_url in content:
+                    continue
+                label = filename.replace('\n', ' ').strip() or 'attachment'
+                added.append(f'[📎 {label}]({local_url})')
         if added:
             if content and (not content.endswith('\n')):
                 content += '\n'
@@ -279,12 +412,22 @@ class MemosAPI:
                 req = urllib.request.Request(full_url, headers=self._auth_headers(), method='GET')
                 with urllib.request.urlopen(req, timeout=10) as response:
                     data = response.read()
+                    content_type = response.headers.get('Content-Type', '')
 
                 if data:
-                    digest = hashlib.sha256(data).hexdigest()
-                    ext = os.path.splitext(url.split('?')[0])[1].lower()
+                    # Use the same identity scheme (content hash + sniffed
+                    # type) as _download_attachment()/_download_generic_
+                    # attachment() below, rather than deriving the filename
+                    # from the URL path. Otherwise the same physical image
+                    # can get cached under two different filenames - once
+                    # here (inline markdown reference) and once via the
+                    # memo's separate 'attachments' list - and end up
+                    # rendered twice in the same memo.
+                    filename_hint = url.split('?')[0].rsplit('/', 1)[-1]
+                    _, ext = self._detect_image_type(data, content_type, filename_hint)
                     if not ext:
                         ext = '.png'
+                    digest = hashlib.sha256(data).hexdigest()
                     local_name = digest + ext
                     local_path = os.path.join(self.image_cache_dir, local_name)
 
@@ -314,12 +457,26 @@ class MemosAPI:
 
         def process_url(match):
             attr = match.group(1)
-            url = match.group(2)
+            # mistune HTML-escapes attribute values (e.g. "&" -> "&amp;"),
+            # so unescape before manipulating the URL and re-escape once at
+            # the end, otherwise a "&" in a real URL ends up double-escaped
+            # (or a raw "&" from an appended query param ends up unescaped)
+            # and produces malformed HTML.
+            url = html_entities.unescape(match.group(2))
             if url in local_urls:
                 url = local_urls[url]
             if url.startswith('/'):
                 url = self.base_url.rstrip('/') + url
-                if self.token:
+                # Qt's StyledText renderer can't send an Authorization
+                # header when it fetches an <img src="...">, so a token
+                # has to be embedded in the URL for images to load at all.
+                # We deliberately do NOT do this for plain links (href):
+                # those get opened in the external browser via
+                # Qt.openUrlExternally, which would leak the API token into
+                # browser history / referrers. Non-image links to the
+                # memos server therefore only work if the server allows
+                # unauthenticated access to that resource.
+                if attr == 'src' and self.token:
                     separator = '&' if '?' in url else '?'
                     url += f'{separator}token={self.token}'
 
@@ -339,14 +496,17 @@ class MemosAPI:
                             int(round(natural_height * display_width / natural_width))
                         )
                         return (
-                            f'src="{url}" width="{display_width}" '
-                            f'height="{display_height}"'
+                            f'src="{html_entities.escape(url, quote=True)}" '
+                            f'width="{display_width}" height="{display_height}"'
                         )
 
                 # Jos kokoa ei saada selville, käytetään silti molempia
                 # mittoja, jotta kuva ei jää alkuperäiseen kokoonsa.
-                return f'src="{url}" width="{target_width}" height="{target_width}"'
-            return f'{attr}="{url}"'
+                return (
+                    f'src="{html_entities.escape(url, quote=True)}" '
+                    f'width="{target_width}" height="{target_width}"'
+                )
+            return f'{attr}="{html_entities.escape(url, quote=True)}"'
 
         html = re.sub('(src|href)="([^"]+)"', process_url, html)
         html = self._restore_local_urls(html, local_urls)
@@ -363,6 +523,9 @@ class MemosAPI:
                 self.auto_upload = data.get('auto_upload', False)
                 self.line_count = data.get('line_count', 2)
                 self.cover_mode = data.get('cover_mode', 0)
+                # Older installs may have written this file with default
+                # (world-readable) permissions before this was fixed.
+                self._secure_file(self.config_file)
             except Exception:
                 pass
 
@@ -378,12 +541,25 @@ class MemosAPI:
         try:
             with open(self.config_file, 'w') as f:
                 json.dump({'base_url': self.base_url, 'token': self.token, 'auto_upload': self.auto_upload, 'line_count': self.line_count, 'cover_mode': self.cover_mode}, f)
+            # settings.json holds the API token in plaintext; restrict it to
+            # the owner so other local users/apps can't read it off disk.
+            self._secure_file(self.config_file)
+            # A URL typed without "http(s)://" (e.g. just "memos.example.com")
+            # is saved as-is (so the person doesn't lose what they typed),
+            # but every subsequent network call would otherwise fail with an
+            # opaque low-level error ("unknown url type"). Flag it clearly
+            # here instead, right when they hit Save.
+            if self.base_url and not (self.base_url.startswith('http://') or self.base_url.startswith('https://')):
+                self._send_error('Server URL should start with http:// or https://')
             return True
         except Exception as e:
             self._send_error(f'Failed to save settings: {str(e)}')
             return False
 
-    def save_to_queue(self, content):
+    def save_to_queue(self, op, content=None, memo_id=None):
+        # Queue entries are now {"op": "create"|"edit"|"delete", ...} so
+        # edits and deletes made offline can be retried too, not just new
+        # memos.
         queue = []
         if os.path.exists(self.queue_file):
             try:
@@ -391,7 +567,32 @@ class MemosAPI:
                     queue = json.load(f)
             except Exception:
                 pass
-        queue.append(content)
+        if not queue or not isinstance(queue, list):
+            queue = []
+        # Migrate any legacy queue entries (plain content strings) from
+        # older versions of the app into the new dict format.
+        queue = [
+            q if isinstance(q, dict) else {'op': 'create', 'content': q}
+            for q in queue
+        ]
+        entry = {'op': op}
+        if content is not None:
+            entry['content'] = content
+        if memo_id is not None:
+            entry['memo_id'] = str(memo_id)
+
+        if op == 'delete':
+            # No point editing/creating something we're about to delete
+            # (or deleting it twice), and an edit queued after a delete
+            # should just replace the delete's outcome.
+            queue = [q for q in queue if q.get('memo_id') != entry.get('memo_id')]
+        elif op == 'edit':
+            queue = [
+                q for q in queue
+                if not (q.get('op') == 'edit' and q.get('memo_id') == entry.get('memo_id'))
+            ]
+
+        queue.append(entry)
         with open(self.queue_file, 'w') as f:
             json.dump(queue, f)
 
@@ -405,18 +606,43 @@ class MemosAPI:
             return False
         if not queue:
             return False
+
+        queue = [
+            q if isinstance(q, dict) else {'op': 'create', 'content': q}
+            for q in queue
+        ]
+
         remaining_queue = []
         synced_any = False
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'SailfishMemos/1.0'}
-        for content in queue:
-            url = f'{self.base_url}/api/v1/memos'
-            payload = json.dumps({'content': content}).encode('utf-8')
+        for entry in queue:
+            op = entry.get('op', 'create')
+            content = entry.get('content')
+            memo_id = entry.get('memo_id')
             try:
-                req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
-                with urllib.request.urlopen(req, timeout=5):
-                    synced_any = True
+                if op == 'create':
+                    url = f'{self.base_url}/api/v1/memos'
+                    payload = json.dumps({'content': content}).encode('utf-8')
+                    req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+                    with urllib.request.urlopen(req, timeout=5):
+                        synced_any = True
+                elif op == 'edit':
+                    mid = memo_id if str(memo_id).startswith('memos/') else f'memos/{memo_id}'
+                    url = f'{self.base_url}/api/v1/{mid}?updateMask=content'
+                    payload = json.dumps({'content': content}).encode('utf-8')
+                    req = urllib.request.Request(url, data=payload, headers=headers, method='PATCH')
+                    with urllib.request.urlopen(req, timeout=5):
+                        synced_any = True
+                elif op == 'delete':
+                    mid = memo_id if str(memo_id).startswith('memos/') else f'memos/{memo_id}'
+                    url = f'{self.base_url}/api/v1/{mid}'
+                    req = urllib.request.Request(url, headers=headers, method='DELETE')
+                    with urllib.request.urlopen(req, timeout=5):
+                        synced_any = True
+                else:
+                    continue
             except Exception:
-                remaining_queue.append(content)
+                remaining_queue.append(entry)
         if remaining_queue:
             with open(self.queue_file, 'w') as f:
                 json.dump(remaining_queue, f)
@@ -429,38 +655,115 @@ class MemosAPI:
             pyotherside.send('queue_synced')
         return True
 
+    def _load_queue(self):
+        if not os.path.exists(self.queue_file):
+            return []
+        try:
+            with open(self.queue_file, 'r') as f:
+                queue = json.load(f)
+        except Exception:
+            return []
+        if not isinstance(queue, list):
+            return []
+        return [
+            q if isinstance(q, dict) else {'op': 'create', 'content': q}
+            for q in queue
+        ]
+
+    def _apply_pending_queue(self, memos_list):
+        """Overlay not-yet-synced offline changes on top of the fetched (or
+        cached) memo list: pending edits show the new content, pending
+        deletes are hidden, and pending creations are prepended as
+        placeholder entries — so a memo you edited/deleted while offline
+        doesn't confusingly show its old state until the next sync."""
+        queue = self._load_queue()
+        if not queue:
+            return memos_list
+
+        pending_edits = {}
+        pending_deletes = set()
+        pending_creates = []
+        for entry in queue:
+            op = entry.get('op', 'create')
+            if op == 'edit' and entry.get('memo_id'):
+                pending_edits[str(entry['memo_id'])] = entry.get('content', '')
+            elif op == 'delete' and entry.get('memo_id'):
+                pending_deletes.add(str(entry['memo_id']))
+            elif op == 'create':
+                pending_creates.append(entry.get('content', ''))
+
+        result = []
+        for memo in memos_list:
+            if not isinstance(memo, dict):
+                result.append(memo)
+                continue
+            mid = str(memo.get('name') or memo.get('id') or '')
+            if mid in pending_deletes:
+                continue
+            if mid in pending_edits:
+                memo = dict(memo)
+                memo['content'] = f"⏳ {pending_edits[mid]}"
+            result.append(memo)
+
+        queued_memos = [
+            {'name': 'queued', 'content': f'⏳ Waiting to sync:\n{c}'}
+            for c in pending_creates
+        ]
+        return queued_memos + result
+
     def fetch_memos(self):
         if not self.base_url or not self.token:
             self._send_error('URL or Token missing!')
             return False
-        url = f'{self.base_url}/api/v1/memos'
+        if not (self.base_url.startswith('http://') or self.base_url.startswith('https://')):
+            # Avoids a raw, hard-to-read exception ("unknown url type")
+            # from urllib below - most likely to be hit right after saving
+            # settings with the scheme left off, since this is what
+            # auto-refreshes immediately afterward.
+            self._send_error('Server URL should start with http:// or https://')
+            return False
         headers = self._auth_headers('application/json')
         memos_list = []
+        page_token = ''
         try:
-            req = urllib.request.Request(url, headers=headers, method='GET')
-            with urllib.request.urlopen(req, timeout=10) as response:
-                raw_data = response.read().decode('utf-8')
+            # The memos API paginates results; without following
+            # nextPageToken only the server's default page (as few as ~a
+            # few dozen memos on some versions) would ever be fetched.
+            for _ in range(200):  # hard safety cap against a malformed/looping server response
+                url = f'{self.base_url}/api/v1/memos?pageSize=100'
+                if page_token:
+                    url += f'&pageToken={urllib.request.quote(page_token, safe="")}'
+                req = urllib.request.Request(url, headers=headers, method='GET')
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    raw_data = response.read().decode('utf-8')
                 data = json.loads(raw_data)
                 if isinstance(data, dict):
-                    memos_list = data.get('memos', [])
+                    page_memos = data.get('memos', [])
+                    page_token = data.get('nextPageToken', '') or ''
                 elif isinstance(data, list):
-                    memos_list = data
+                    page_memos = data
+                    page_token = ''
                 else:
-                    memos_list = []
-                processed_memos = []
-                for memo in memos_list:
-                    if not isinstance(memo, dict):
-                        processed_memos.append(memo)
-                        continue
-                    memo_copy = dict(memo)
+                    page_memos = []
+                    page_token = ''
+                memos_list.extend(page_memos)
+                if not page_token or not page_memos:
+                    break
 
-                    memo_copy['content'] = self._cache_inline_images(memo_copy.get('content', ''))
-                    memo_copy['content'] = self._process_memo_attachments(memo_copy)
+            processed_memos = []
+            for memo in memos_list:
+                if not isinstance(memo, dict):
+                    processed_memos.append(memo)
+                    continue
+                memo_copy = dict(memo)
 
-                    processed_memos.append(memo_copy)
-                memos_list = processed_memos
-                with open(self.cache_file, 'w') as f:
-                    json.dump(memos_list, f)
+                memo_copy['content'] = self._cache_inline_images(memo_copy.get('content', ''))
+                memo_copy['content'] = self._process_memo_attachments(memo_copy)
+
+                processed_memos.append(memo_copy)
+            memos_list = processed_memos
+            with open(self.cache_file, 'w') as f:
+                json.dump(memos_list, f)
         except Exception as e:
             self._send_error(f'Fetch error: {str(e)}')
             if os.path.exists(self.cache_file):
@@ -469,39 +772,66 @@ class MemosAPI:
                         memos_list = json.load(f)
                 except Exception:
                     pass
-        if os.path.exists(self.queue_file):
-            try:
-                with open(self.queue_file, 'r') as f:
-                    queue = json.load(f)
-                queued_memos = [{'name': 'queued', 'content': f'⏳ Waiting to sync:\n{q}'} for q in queue]
-                memos_list = queued_memos + memos_list
-            except Exception:
-                pass
+
+        memos_list = self._apply_pending_queue(memos_list)
+
+        # Tell the UI directly whether anything is waiting to sync, rather
+        # than making it infer this from scanning the memo list - a queued
+        # delete leaves no visible marker there (the memo is just hidden),
+        # so that inference would miss a delete-only queue, e.g. after the
+        # app was restarted.
+        pyotherside.send('queue_status', bool(self._load_queue()))
+
         if memos_list:
             pyotherside.send('memos_fetched', memos_list)
         return True
 
-    def create_memo(self, content):
+    def create_memo(self, content, allow_queue=True):
         if not self.base_url or not self.token:
             self._send_error('Set server URL and token in settings.')
-            return False
+            return {'ok': False, 'error': 'Set server URL and token in settings.'}
         url = f'{self.base_url}/api/v1/memos'
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'SailfishMemos/1.0'}
         payload = json.dumps({'content': content}).encode('utf-8')
         try:
             req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
-            with urllib.request.urlopen(req, timeout=5):
+            with urllib.request.urlopen(req, timeout=10) as response:
+                raw = response.read().decode('utf-8')
                 pyotherside.send('memo_created')
-                return True
+                try:
+                    name = json.loads(raw).get('name', '')
+                except Exception:
+                    name = ''
+                return {'ok': True, 'name': name}
         except Exception as e:
-            if self.auto_upload:
-                self.save_to_queue(content)
+            if self.auto_upload and allow_queue:
+                self.save_to_queue('create', content=content)
                 pyotherside.send('memo_queued', content)
-                return True
+                return {'ok': True, 'queued': True}
             self._send_error(f'Create error: {str(e)}')
+            return {'ok': False, 'error': str(e)}
+
+    def delete_attachment(self, attachment_name):
+        """Best-effort delete of a standalone/linked attachment - used to
+        clean up an upload made during a NewMemoDialog session that then
+        got cancelled, so it doesn't sit around linked to a real memo (or
+        as an orphaned "unused" attachment) without ever being referenced
+        anywhere. Failures here are non-fatal: worst case is a leftover
+        unused attachment visible in the web UI, not a broken memo."""
+        if not self.base_url or not self.token or not attachment_name:
+            return False
+        if not str(attachment_name).startswith('attachments/'):
+            attachment_name = f'attachments/{attachment_name}'
+        url = f"{self.base_url}/api/v1/{attachment_name}"
+        headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json', 'User-Agent': 'SailfishMemos/1.0'}
+        try:
+            req = urllib.request.Request(url, headers=headers, method='DELETE')
+            with urllib.request.urlopen(req, timeout=10):
+                return True
+        except Exception:
             return False
 
-    def delete_memo(self, memo_id):
+    def delete_memo(self, memo_id, force_queue=False):
         if not str(memo_id).startswith('memos/'):
             memo_id = f'memos/{memo_id}'
         url = f'{self.base_url}/api/v1/{memo_id}'
@@ -512,6 +842,15 @@ class MemosAPI:
                 pyotherside.send('memo_deleted')
                 return True
         except Exception as e:
+            # force_queue is used for internal cleanup deletes (e.g. removing
+            # a provisional memo after a cancelled NewMemoDialog) - those
+            # should always be retried once connectivity returns, regardless
+            # of the user's auto_upload preference, since leaving one behind
+            # isn't something the user asked for or can easily notice.
+            if self.auto_upload or force_queue:
+                self.save_to_queue('delete', memo_id=memo_id)
+                pyotherside.send('memo_queued', '')
+                return True
             self._send_error(f'Delete error: {str(e)}')
             return False
 
@@ -527,15 +866,19 @@ class MemosAPI:
                 pyotherside.send('memo_edited')
                 return True
         except Exception as e:
+            if self.auto_upload:
+                self.save_to_queue('edit', content=content, memo_id=memo_id)
+                pyotherside.send('memo_queued', content)
+                return True
             self._send_error(f'Edit error: {str(e)}')
             return False
 
-    def upload_resource(self, file_path):
+    def upload_resource(self, file_path, memo_name=None):
         if not self.base_url or not self.token:
-            return "Error: URL or Token missing."
+            return {'ok': False, 'error': 'Error: URL or Token missing.'}
 
         if not os.path.exists(file_path):
-            return "Error: File not found."
+            return {'ok': False, 'error': 'Error: File not found.'}
 
         filename = os.path.basename(file_path)
         mime_type, _ = mimetypes.guess_type(file_path)
@@ -546,7 +889,7 @@ class MemosAPI:
             with open(file_path, 'rb') as f:
                 file_data = f.read()
         except Exception as e:
-            return f"Error reading file: {str(e)}"
+            return {'ok': False, 'error': f"Error reading file: {str(e)}"}
 
         b64_content = base64.b64encode(file_data).decode('utf-8')
 
@@ -564,6 +907,13 @@ class MemosAPI:
             "type": mime_type,
             "content": b64_content
         }
+        if memo_name:
+            # If the memo already exists (editing), link the attachment to
+            # it right away instead of leaving it standalone. This is the
+            # same mechanism usememos' own integrations use.
+            if not str(memo_name).startswith('memos/'):
+                memo_name = f'memos/{memo_name}'
+            payload["memo"] = memo_name
 
         body = json.dumps(payload).encode('utf-8')
 
@@ -590,21 +940,29 @@ class MemosAPI:
                         res_url = f"/o/r/{r_id}/{urllib.request.quote(r_filename, safe='')}"
 
                     if res_url:
-                        if r_type.startswith('image/'):
-                            return f"![{r_filename}]({res_url})"
-                        else:
-                            return f"[📎 {r_filename}]({res_url})"
+                        # NOTE: unless memo_name was given above, this only
+                        # creates a *standalone* attachment - the caller
+                        # must know the memo's id before uploading (e.g. by
+                        # creating the memo first) to get it linked; there's
+                        # no reliable way to link it after the fact across
+                        # usememos versions.
+                        markdown = (
+                            f"![{r_filename}]({res_url})"
+                            if r_type.startswith('image/')
+                            else f"[📎 {r_filename}]({res_url})"
+                        )
+                        return {'ok': True, 'markdown': markdown, 'name': r_name or ''}
 
-                return f"Error: Unexpected response: {res_data[:50]}..."
+                return {'ok': False, 'error': f"Error: Unexpected response: {res_data[:50]}..."}
 
         except urllib.error.HTTPError as e:
             try:
                 error_msg = e.read().decode('utf-8')
             except:
                 error_msg = e.reason
-            return f"HTTP Error {e.code}: {error_msg[:100]}"
+            return {'ok': False, 'error': f"HTTP Error {e.code}: {error_msg[:100]}"}
         except Exception as e:
-            return f"Upload error: {str(e)}"
+            return {'ok': False, 'error': f"Upload error: {str(e)}"}
 
     def clear_cache(self):
         # 1. Poistetaan muistiinpanojen tekstivälimuisti (cache.json)
@@ -622,8 +980,11 @@ class MemosAPI:
                         os.remove(file_path)
             except Exception as e:
                 self._send_error(f"Image cache clear error: {str(e)}")
-        # Lähetetään onnistumisviesti käyttöliittymälle näkyviin
-        self._send_error("Välimuistit tyhjennetty!")
+        # Notify the UI via a dedicated "success" channel with a translation
+        # key, instead of piggy-backing a hardcoded Finnish string on the
+        # error channel (which bypassed the app's own translation files and
+        # showed up styled as an error).
+        self._send_success('cache_cleared')
         return True
 
 api = MemosAPI()
