@@ -7,3 +7,6 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 bin/
+
+# An in-source sfdk build leaves the packaged RPMs here.
+RPMS/

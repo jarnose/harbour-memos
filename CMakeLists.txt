@@ -78,7 +78,6 @@ add_custom_target(distfiles
         rpm/harbour-memos.changes.in
         rpm/harbour-memos.changes.run.in
         rpm/harbour-memos.spec
-        rpm/harbour-memos.yaml
         ${TS_FILES})
 
 # Tell Qt Creator where the application executable(s) would be located on the device.

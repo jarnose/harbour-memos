@@ -1,16 +1,20 @@
 Name:       harbour-memos
 
 Summary:    Memos
-Version:    0.1
+Version:    1.0
 Release:    1
-License:    LICENSE
+License:    MIT
 URL:        http://example.org/
 Source0:    %{name}-%{version}.tar.bz2
 Requires:   sailfishsilica-qt5 >= 0.10.9
+Requires:   pyotherside-qml-plugin-python3-qt5
 BuildRequires:  pkgconfig(sailfishapp) >= 1.0.2
 BuildRequires:  pkgconfig(Qt5Core)
 BuildRequires:  pkgconfig(Qt5Qml)
 BuildRequires:  pkgconfig(Qt5Quick)
+# find_package(Qt5 LinguistTools) comes from this plain package; no
+# pkgconfig() virtual exists for it.
+BuildRequires:  qt5-qttools-linguist
 BuildRequires:  desktop-file-utils
 BuildRequires:  cmake
 
