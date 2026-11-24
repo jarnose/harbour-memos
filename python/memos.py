@@ -186,10 +186,39 @@ class MemosAPI:
         )
         self.base_url = ''
         self.token = ''
+        self._api_prefix = '/api'
+        self._api_prefix_for = None
         self.auto_upload = False
         self.line_count = 2
         self.cover_mode = 0
         self.load_settings()
+
+    def _api_base(self):
+        """Base URL of the REST API, e.g. "https://host/api".
+
+        Memos 26.10 dropped the "/v1" version marker (/api/v1/... -> /api/...)
+        and the old routes answer "410 Gone". Older servers only know
+        /api/v1/..., so probe once per base_url and remember the answer.
+        """
+        root = self.base_url.rstrip('/')
+        if self._api_prefix_for == root:
+            return root + self._api_prefix
+        prefix = '/api'
+        try:
+            req = urllib.request.Request(root + '/api/v1/instance/profile',
+                                         headers={'Accept': 'application/json', 'User-Agent': 'SailfishMemos/1.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status == 200:
+                    prefix = '/api/v1'
+        except urllib.error.HTTPError:
+            # 410 (new server) / 404: use the unversioned routes.
+            pass
+        except Exception:
+            # Network trouble: don't cache a guess, try again next time.
+            return root + '/api'
+        self._api_prefix = prefix
+        self._api_prefix_for = root
+        return root + prefix
 
     def _send_error(self, message):
         try:
@@ -687,21 +716,21 @@ class MemosAPI:
             memo_id = entry.get('memo_id')
             try:
                 if op == 'create':
-                    url = f'{self.base_url}/api/v1/memos'
+                    url = f'{self._api_base()}/memos'
                     payload = json.dumps({'content': content}).encode('utf-8')
                     req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
                     with urllib.request.urlopen(req, timeout=5):
                         synced_any = True
                 elif op == 'edit':
                     mid = memo_id if str(memo_id).startswith('memos/') else f'memos/{memo_id}'
-                    url = f'{self.base_url}/api/v1/{mid}?updateMask=content'
+                    url = f'{self._api_base()}/{mid}?updateMask=content'
                     payload = json.dumps({'content': content}).encode('utf-8')
                     req = urllib.request.Request(url, data=payload, headers=headers, method='PATCH')
                     with urllib.request.urlopen(req, timeout=5):
                         synced_any = True
                 elif op == 'delete':
                     mid = memo_id if str(memo_id).startswith('memos/') else f'memos/{memo_id}'
-                    url = f'{self.base_url}/api/v1/{mid}'
+                    url = f'{self._api_base()}/{mid}'
                     req = urllib.request.Request(url, headers=headers, method='DELETE')
                     with urllib.request.urlopen(req, timeout=5):
                         synced_any = True
@@ -796,7 +825,11 @@ class MemosAPI:
             # nextPageToken only the server's default page (as few as ~a
             # few dozen memos on some versions) would ever be fetched.
             for _ in range(200):  # hard safety cap against a malformed/looping server response
-                url = f'{self.base_url}/api/v1/memos?pageSize=100'
+                url = f'{self._api_base()}/memos?pageSize=100'
+                if self._api_prefix == '/api':
+                    # Since 26.10 the list also returns comments (memos with
+                    # a parent); ask for top-level memos only, as before.
+                    url += '&filter=' + urllib.request.quote('parent == null', safe='')
                 if page_token:
                     url += f'&pageToken={urllib.request.quote(page_token, safe="")}'
                 req = urllib.request.Request(url, headers=headers, method='GET')
@@ -856,7 +889,7 @@ class MemosAPI:
         if not self.base_url or not self.token:
             self._send_error('Set server URL and token in settings.')
             return {'ok': False, 'error': 'Set server URL and token in settings.'}
-        url = f'{self.base_url}/api/v1/memos'
+        url = f'{self._api_base()}/memos'
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'SailfishMemos/1.0'}
         payload = json.dumps({'content': content}).encode('utf-8')
         try:
@@ -888,7 +921,7 @@ class MemosAPI:
             return False
         if not str(attachment_name).startswith('attachments/'):
             attachment_name = f'attachments/{attachment_name}'
-        url = f"{self.base_url}/api/v1/{attachment_name}"
+        url = f"{self._api_base()}/{attachment_name}"
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json', 'User-Agent': 'SailfishMemos/1.0'}
         try:
             req = urllib.request.Request(url, headers=headers, method='DELETE')
@@ -900,7 +933,7 @@ class MemosAPI:
     def delete_memo(self, memo_id, force_queue=False):
         if not str(memo_id).startswith('memos/'):
             memo_id = f'memos/{memo_id}'
-        url = f'{self.base_url}/api/v1/{memo_id}'
+        url = f'{self._api_base()}/{memo_id}'
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json', 'User-Agent': 'SailfishMemos/1.0'}
         try:
             req = urllib.request.Request(url, headers=headers, method='DELETE')
@@ -923,7 +956,7 @@ class MemosAPI:
     def edit_memo(self, memo_id, content):
         if not str(memo_id).startswith('memos/'):
             memo_id = f'memos/{memo_id}'
-        url = f'{self.base_url}/api/v1/{memo_id}?updateMask=content'
+        url = f'{self._api_base()}/{memo_id}?updateMask=content'
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'SailfishMemos/1.0'}
         payload = json.dumps({'content': content}).encode('utf-8')
         try:
@@ -966,7 +999,7 @@ class MemosAPI:
             'User-Agent': 'SailfishMemos/1.0'
         }
 
-        url = f"{self.base_url}/api/v1/attachments"
+        url = f"{self._api_base()}/attachments"
 
         payload = {
             "filename": filename,
