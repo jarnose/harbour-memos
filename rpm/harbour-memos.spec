@@ -1,7 +1,7 @@
 Name:       harbour-memos
 
 Summary:    Memos
-Version:    1.0
+Version:    1.1
 Release:    1
 License:    MIT
 URL:        http://example.org/

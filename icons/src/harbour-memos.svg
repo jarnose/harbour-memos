@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher icon, drawn after the Sailfish OS app icon template (86 x 86, the "leaf" shape with two round and
+     two sharp corners, a diagonal gradient, flat colours from the template's palette, a translucent highlight).
+     Template: https://sailfishos.org/design/icons/ (CC BY 3.0). Rendered by tools/make_icon.py. -->
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="86px" height="86px" viewBox="0 0 86 86">
+  <defs>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="0.7" y1="85.3" x2="85.3" y2="0.7">
+      <stop offset="0" style="stop-color:#2A43B5"/>
+      <stop offset="1" style="stop-color:#3FC6DE"/>
+    </linearGradient>
+    <linearGradient id="pencil" gradientUnits="userSpaceOnUse" x1="-4" y1="0" x2="4" y2="0">
+      <stop offset="0" style="stop-color:#FFC21A"/>
+      <stop offset="1" style="stop-color:#FF7636"/>
+    </linearGradient>
+    <clipPath id="leaf">
+      <path d="M84.277,0.3H43C19.417,0.3,0.3,19.418,0.3,43v41.277c0,0.786,0.637,1.423,1.423,1.423H43
+               c23.583,0,42.7-19.118,42.7-42.7V1.723C85.7,0.937,85.063,0.3,84.277,0.3z"/>
+    </clipPath>
+  </defs>
+
+  <!-- the leaf -->
+  <path fill="url(#bg)" d="M84.277,0.3H43C19.417,0.3,0.3,19.418,0.3,43v41.277c0,0.786,0.637,1.423,1.423,1.423H43
+       c23.583,0,42.7-19.118,42.7-42.7V1.723C85.7,0.937,85.063,0.3,84.277,0.3z"/>
+
+  <g clip-path="url(#leaf)">
+    <!-- layered translucent shapes, as in the library's icons -->
+    <path opacity="0.5" fill="#8FE3F0" d="M85.7,38 C70,38 52,52 52,85.7 L85.7,85.7 Z"/>
+    <path opacity="0.35" fill="#FFFFFF" d="M0.3,60 C0.3,28 22,0.3 54,0.3 L0.3,0.3 Z"/>
+  </g>
+
+  <!-- the memo: a cream sheet with a folded corner and ruled text -->
+  <path fill="#F9F8D9" opacity="0.96"
+        d="M20,15 H46 L58,27 V66 a3,3 0 0 1 -3,3 H20 a3,3 0 0 1 -3,-3 V18 a3,3 0 0 1 3,-3 Z"/>
+  <path fill="#D5D29A" d="M46,15 L58,27 H49 a3,3 0 0 1 -3,-3 Z"/>
+  <g stroke="#1472A0" stroke-linecap="round" fill="none">
+    <line x1="23.5" y1="33" x2="40" y2="33" stroke-width="3.2"/>
+    <line x1="23.5" y1="42" x2="51" y2="42" stroke-width="2.4" opacity="0.65"/>
+    <line x1="23.5" y1="49.5" x2="51" y2="49.5" stroke-width="2.4" opacity="0.65"/>
+    <line x1="23.5" y1="57" x2="37" y2="57" stroke-width="2.4" opacity="0.65"/>
+  </g>
+
+  <!-- a pencil writing on it -->
+  <g transform="translate(63,47) rotate(40)">
+    <rect x="-4" y="-27" width="8" height="5" rx="1.6" fill="#F27A9A" stroke="#C9456B" stroke-width="0.8"/>
+    <rect x="-4" y="-22" width="8" height="30" fill="url(#pencil)" stroke="#E5650F" stroke-width="0.8" stroke-linejoin="round"/>
+    <path d="M-4,8 H4 L0,16 Z" fill="#F4D9B0" stroke="#E5650F" stroke-width="0.8" stroke-linejoin="round"/>
+    <path d="M-1.4,13 H1.4 L0,16 Z" fill="#1B2A4A"/>
+    <rect x="-4" y="-22" width="2.6" height="30" fill="#FFFFFF" opacity="0.35"/>
+  </g>
+</svg>
